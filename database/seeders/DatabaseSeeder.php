@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Company;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -15,7 +16,14 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(RoleSeeder::class);
+        $this->call([
+            RoleSeeder::class,
+            PayrollRateSeeder::class,
+            TaxSlabSeeder::class,
+            LeaveTypeSeeder::class,
+        ]);
+
+        Company::create(['name' => 'PLACEHOLDER Company Name']);
 
         // User::factory(10)->create();
 

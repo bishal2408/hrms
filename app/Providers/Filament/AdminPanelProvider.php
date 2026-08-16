@@ -2,35 +2,43 @@
 
 namespace App\Providers\Filament;
 
+use App\Providers\Filament\Concerns\ConfiguresPanelDefaults;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
-use Filament\Http\Middleware\Authenticate;
-use Filament\Http\Middleware\AuthenticateSession;
-use Filament\Http\Middleware\DisableBladeIconComponents;
-use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\Support\Colors\Color;
-use Filament\Widgets\AccountWidget;
-use Filament\Widgets\FilamentInfoWidget;
-use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
-use Illuminate\Cookie\Middleware\EncryptCookies;
-use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
-use Illuminate\Routing\Middleware\SubstituteBindings;
-use Illuminate\Session\Middleware\StartSession;
-use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Filament\Support\Icons\Heroicon;
 
 class AdminPanelProvider extends PanelProvider
 {
+    use ConfiguresPanelDefaults;
+
     public function panel(Panel $panel): Panel
     {
-        return $panel
+        return $this->applyPanelDefaults($panel)
             ->default()
             ->id('admin')
             ->path('admin')
-            ->login()
-            ->colors([
-                'primary' => Color::Amber,
+            // Declared explicitly so the order is a decision, not the accident
+            // of which resource was generated first (DESIGN.md N1/N2). Groups
+            // with no resources yet stay silent until their phase lands.
+            ->navigationGroups([
+                NavigationGroup::make('People')
+                    ->icon(Heroicon::OutlinedUsers),
+                NavigationGroup::make('Attendance & Leave')
+                    ->icon(Heroicon::OutlinedClock),
+                NavigationGroup::make('Payroll')
+                    ->icon(Heroicon::OutlinedBanknotes),
+                NavigationGroup::make('Accounting')
+                    ->icon(Heroicon::OutlinedCalculator),
+                // Edited rarely, by few people — kept out of the daily-use path.
+                NavigationGroup::make('Setup')
+                    ->icon(Heroicon::OutlinedAdjustmentsHorizontal)
+                    ->collapsed(),
+                NavigationGroup::make('Administration')
+                    ->icon(Heroicon::OutlinedShieldCheck)
+                    ->collapsed(),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
@@ -38,26 +46,15 @@ class AdminPanelProvider extends PanelProvider
                 Dashboard::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
-            ->widgets([
-                AccountWidget::class,
-                FilamentInfoWidget::class,
-            ])
-            ->middleware([
-                EncryptCookies::class,
-                AddQueuedCookiesToResponse::class,
-                StartSession::class,
-                AuthenticateSession::class,
-                ShareErrorsFromSession::class,
-                PreventRequestForgery::class,
-                SubstituteBindings::class,
-                DisableBladeIconComponents::class,
-                DispatchServingFilamentEvent::class,
-            ])
             ->plugins([
-                FilamentShieldPlugin::make(),
-            ])
-            ->authMiddleware([
-                Authenticate::class,
+                // Shield ships its own top-level "Filament Shield" group. Our
+                // product's navigation shouldn't carry a vendor's brand, so the
+                // Roles resource is relabelled into Administration (DESIGN.md N3).
+                FilamentShieldPlugin::make()
+                    ->navigationGroup('Administration')
+                    ->navigationLabel('Roles & Permissions')
+                    ->navigationIcon(Heroicon::OutlinedKey)
+                    ->navigationSort(20),
             ]);
     }
 }

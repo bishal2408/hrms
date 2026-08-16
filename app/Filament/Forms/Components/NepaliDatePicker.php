@@ -5,7 +5,6 @@ namespace App\Filament\Forms\Components;
 use App\Services\NepaliCalendar;
 use Closure;
 use Filament\Forms\Components\TextInput;
-use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
@@ -27,9 +26,11 @@ class NepaliDatePicker extends TextInput
                 return;
             }
 
-            $adDate = $state instanceof Carbon ? $state->toDateString() : (string) $state;
-
-            $this->state(NepaliCalendar::adToBs($adDate));
+            // Whatever shape the AD value arrives in — a Carbon from the model
+            // cast, or the ISO-8601 string Filament fills an edit form with —
+            // NepaliCalendar normalises it. Do not pre-format it here; that is
+            // exactly the per-call-site handling this component exists to avoid.
+            $this->state(NepaliCalendar::adToBs($state));
         });
 
         $this->dehydrateStateUsing(function ($state) {

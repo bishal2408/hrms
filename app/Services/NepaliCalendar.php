@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Anuzpandey\LaravelNepaliDate\LaravelNepaliDate;
 use Carbon\CarbonImmutable;
+use Carbon\Exceptions\InvalidFormatException;
 use DateTimeInterface;
 
 /**
@@ -22,7 +23,26 @@ class NepaliCalendar
 
     public static function adToBs(DateTimeInterface|string $adDate, string $format = 'Y-m-d'): string
     {
-        return LaravelNepaliDate::from($adDate, 'Y-m-d', 'en')->toNepaliDate($format, 'en');
+        return LaravelNepaliDate::from(self::normalizeAd($adDate), 'Y-m-d', 'en')->toNepaliDate($format, 'en');
+    }
+
+    /**
+     * Reduce any AD value to the plain Y-m-d string the conversion library
+     * requires.
+     *
+     * Callers hand us dates in whatever shape their layer produced: a Carbon
+     * from a model cast, a raw 'Y-m-d H:i:s' column value, or the ISO-8601
+     * string Eloquent's date cast emits from attributesToArray() — which is
+     * what Filament fills an edit form with. Normalising here rather than at
+     * each call site keeps that knowledge in one place.
+     *
+     * @throws InvalidFormatException When the value is not a parseable AD date.
+     */
+    public static function normalizeAd(DateTimeInterface|string $adDate): string
+    {
+        return $adDate instanceof DateTimeInterface
+            ? $adDate->format('Y-m-d')
+            : CarbonImmutable::parse($adDate)->toDateString();
     }
 
     public static function bsToAd(string $bsDate, string $format = 'Y-m-d'): CarbonImmutable
