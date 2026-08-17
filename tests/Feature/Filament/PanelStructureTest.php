@@ -1,5 +1,8 @@
 <?php
 
+use App\Filament\Employee\Pages\Attendance as EmployeeAttendance;
+use App\Filament\Employee\Pages\MyProfile;
+use App\Filament\Employee\Resources\LeaveRequests\LeaveRequestResource as EmployeeLeaveRequestResource;
 use App\Filament\Resources\LeaveTypes\LeaveTypeResource;
 use App\Filament\Resources\PayrollRates\PayrollRateResource;
 use App\Filament\Resources\TaxSlabs\TaxSlabResource;
@@ -56,8 +59,32 @@ test("Shield's roles resource is relabelled into Administration", function () {
         ->and(RoleResource::getNavigationLabel())->toBe('Roles & Permissions');
 });
 
-test('the employee panel exposes none of the admin resources', function () {
-    expect(Filament::getPanel('employee')->getResources())->toBeEmpty();
+test('the employee panel exposes none of the admin resources, only its own self-service ones', function () {
+    $employeeResources = Filament::getPanel('employee')->getResources();
+
+    expect(array_values($employeeResources))
+        ->each->toStartWith('App\\Filament\\Employee\\')
+        ->and($employeeResources)->not->toContain(PayrollRateResource::class)
+        ->and($employeeResources)->not->toContain(TaxSlabResource::class)
+        ->and($employeeResources)->not->toContain(LeaveTypeResource::class);
+});
+
+// Guards against a whole class of regression, not just today's three items:
+// N1 applies to every panel, not only the one with the most resources.
+test('the employee panel has no ungrouped navigation items', function () {
+    Filament::setCurrentPanel(Filament::getPanel('employee'));
+    Filament::bootCurrentPanel();
+
+    $groupLabels = collect(Filament::getNavigation())->map(fn ($group) => $group->getLabel());
+
+    expect($groupLabels)->not->toContain(null)
+        ->and($groupLabels)->not->toContain('');
+});
+
+test('the employee panel groups match the admin panel where the same domain appears in both', function () {
+    expect(EmployeeAttendance::getNavigationGroup())->toBe('Attendance & Leave')
+        ->and(EmployeeLeaveRequestResource::getNavigationGroup())->toBe('Attendance & Leave')
+        ->and(MyProfile::getNavigationGroup())->toBe('Account');
 });
 
 test('both panels share one brand, primary colour and typeface', function () {

@@ -43,3 +43,18 @@ test('a date on Shrawan 1 belongs to the fiscal year that just started, not the 
     expect(NepaliCalendar::fiscalYearFor($shrawan1)['bs_start_year'])->toBe(2081)
         ->and(NepaliCalendar::fiscalYearFor($ashadhEnd)['bs_start_year'])->toBe(2080);
 });
+
+test('a BS month\'s AD bounds span the whole month and nothing else', function () {
+    $bounds = NepaliCalendar::bsMonthBounds(2081, 4); // Shrawan 2081
+
+    expect(NepaliCalendar::adToBs($bounds['start_date']->toDateString()))->toBe('2081-04-01')
+        ->and(NepaliCalendar::adToBs($bounds['end_date']->toDateString()))
+        ->toBe(sprintf('2081-04-%02d', NepaliCalendar::daysInBsMonth(4, 2081)))
+        // The day after the month ends must fall into the next BS month.
+        ->and(NepaliCalendar::adToBs($bounds['end_date']->addDay()->toDateString()))->toBe('2081-05-01');
+});
+
+test('all twelve BS months have a name', function () {
+    expect(NepaliCalendar::bsMonthOptions())->toHaveCount(12)
+        ->and(array_keys(NepaliCalendar::bsMonthOptions()))->toBe(range(1, 12));
+});

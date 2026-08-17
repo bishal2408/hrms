@@ -1,0 +1,14 @@
+@import '../../../vendor/filament/filament/resources/css/theme.css';
+
+/*
+ * Filament's own theme.css imports Tailwind with source(none) — it does not
+ * scan anything on its own. Without these @source lines, raw utility classes
+ * written directly in our custom Blade views (attendance.blade.php,
+ * my-profile.blade.php, company-settings.blade.php) are invisible to
+ * Tailwind and render completely unstyled, even though every other part of
+ * the panel (sidebar, buttons, Filament's own components) looks correct —
+ * those come from Filament's separately pre-built CSS, which never scans our
+ * app at all.
+ */
+@source '../../../app/Filament';
+@source '../../../resources/views/filament';

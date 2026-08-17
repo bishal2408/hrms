@@ -40,6 +40,13 @@ trait ConfiguresPanelDefaults
             ->font('Instrument Sans')
             ->brandName(config('app.name'))
             ->favicon(asset('favicon.ico'))
+            // Without this, Filament serves its own pre-built CSS, which is
+            // scanned from Filament's package source only — raw Tailwind
+            // utility classes written in our own Blade views never make it
+            // in, no matter how many times `npm run build` runs. This custom
+            // theme imports Filament's base theme and adds our app to the
+            // scan (resources/css/filament/theme.css).
+            ->viteTheme('resources/css/filament/theme.css')
             // No full page reload between screens — this app is almost entirely
             // table and form navigation, where the difference is very visible.
             ->spa()

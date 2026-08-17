@@ -94,4 +94,46 @@ class NepaliCalendar
     {
         return self::fiscalYearFor(CarbonImmutable::now());
     }
+
+    /**
+     * The 12 BS month names, 1-indexed. Fixed calendar facts (unlike tax
+     * rates or PF percentages) — not configurable data, so this lives as a
+     * constant here rather than a lookup table.
+     *
+     * @return array<int, string>
+     */
+    public static function bsMonthOptions(): array
+    {
+        return [
+            1 => 'Baishakh',
+            2 => 'Jestha',
+            3 => 'Ashadh',
+            4 => 'Shrawan',
+            5 => 'Bhadra',
+            6 => 'Ashwin',
+            7 => 'Kartik',
+            8 => 'Mangsir',
+            9 => 'Poush',
+            10 => 'Magh',
+            11 => 'Falgun',
+            12 => 'Chaitra',
+        ];
+    }
+
+    /**
+     * The AD start/end dates of a given BS year/month — e.g. for
+     * constructing a payroll period aligned to a real Nepali calendar month
+     * rather than an arbitrary date range.
+     *
+     * @return array{start_date: CarbonImmutable, end_date: CarbonImmutable}
+     */
+    public static function bsMonthBounds(int $bsYear, int $bsMonth): array
+    {
+        $lastDay = self::daysInBsMonth($bsMonth, $bsYear);
+
+        return [
+            'start_date' => self::bsToAd(sprintf('%04d-%02d-01', $bsYear, $bsMonth)),
+            'end_date' => self::bsToAd(sprintf('%04d-%02d-%02d', $bsYear, $bsMonth, $lastDay)),
+        ];
+    }
 }

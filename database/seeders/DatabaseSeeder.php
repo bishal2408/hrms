@@ -18,9 +18,13 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             RoleSeeder::class,
+            // Must follow RoleSeeder, and needs shield:generate to have created
+            // the permission rows it attaches.
+            RolePermissionSeeder::class,
             PayrollRateSeeder::class,
             TaxSlabSeeder::class,
             LeaveTypeSeeder::class,
+            SalaryComponentTypeSeeder::class,
         ]);
 
         Company::create(['name' => 'PLACEHOLDER Company Name']);
