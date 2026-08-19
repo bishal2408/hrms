@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\EmployeeDocumentDownloadController;
 use App\Http\Controllers\PayslipPdfController;
 use Illuminate\Support\Facades\Route;
 
@@ -19,3 +20,8 @@ Route::get('/', function () {
 // applied.
 Route::get('/payroll/payslips/{payslip}/pdf', [PayslipPdfController::class, 'download'])
     ->name('payslips.pdf');
+
+// Same reasoning as the payslip route above — no 'auth' middleware, the
+// controller checks auth()->user() itself.
+Route::get('/people/employee-documents/{employeeDocument}/download', [EmployeeDocumentDownloadController::class, 'download'])
+    ->name('employee-documents.download');

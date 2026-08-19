@@ -64,6 +64,9 @@ class RolePermissionSeeder extends Seeder
      *   Filament Actions, not the stock EditAction, so Shield's blanket
      *   permission check never runs for them — LeaveRequestService::canDecide()
      *   (and the ownership check in cancel()) is the real authorization.
+     * - Nobody gets `Update:EmployeeDocument`. There is no edit action on a
+     *   document anywhere (wrong file → delete and re-upload, not edit in
+     *   place), so granting it would be inert.
      *
      * @return array<string, array<string, list<string>>>
      */
@@ -92,6 +95,15 @@ class RolePermissionSeeder extends Seeder
                 'User' => self::WRITE,
                 'CompanySettings' => ['View'],
                 'SetupStatusOverview' => ['View'],
+                // HR owns the document-type lookup, same tier as
+                // SalaryComponentType below.
+                'DocumentType' => self::MANAGE,
+                // Sensitive PII (citizenship copies, contracts) — see
+                // EmployeeDocumentDownloadController's docblock: this is
+                // deliberately narrower than Employee's own visibility.
+                // Managers who can see a direct report's basic record do
+                // NOT get this (decision: 2026-08-19).
+                'EmployeeDocument' => ['ViewAny', 'View', 'Create', 'Delete', 'DeleteAny'],
             ],
 
             // Owns payroll and tax configuration; reads people data to run it.
@@ -121,6 +133,10 @@ class RolePermissionSeeder extends Seeder
                 // Payslips and statutory filings need the company's PAN/VAT.
                 'CompanySettings' => ['View'],
                 'SetupStatusOverview' => ['View'],
+                // Read only, like their Employee grant above — verifying
+                // identity documents for statutory filings, not managing
+                // uploads (that stays hr_admin's job).
+                'EmployeeDocument' => self::READ,
             ],
 
             // Read-only on people. Which people is decided by
@@ -155,6 +171,13 @@ class RolePermissionSeeder extends Seeder
                 // PayslipResource::getEloquentQuery() — same reasoning as
                 // LeaveRequest above.
                 'Payslip' => self::READ,
+                // Same shape as Payslip: EmployeeDocumentResource is
+                // read-only (canCreate() hard-coded false), scoped to the
+                // employee's own documents by its own getEloquentQuery(). The
+                // download route itself does its own separate ownership
+                // check (EmployeeDocumentDownloadController) since it's a
+                // plain URL, not Livewire-gated.
+                'EmployeeDocument' => self::READ,
             ],
         ];
     }

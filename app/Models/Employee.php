@@ -126,6 +126,12 @@ class Employee extends Model
         return $this->hasMany(Payslip::class);
     }
 
+    /** @return HasMany<EmployeeDocument, $this> */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(EmployeeDocument::class);
+    }
+
     /** @return Attribute<string, never> */
     protected function fullName(): Attribute
     {

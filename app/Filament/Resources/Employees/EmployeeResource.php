@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Employees;
 use App\Filament\Resources\Employees\Pages\CreateEmployee;
 use App\Filament\Resources\Employees\Pages\EditEmployee;
 use App\Filament\Resources\Employees\Pages\ListEmployees;
+use App\Filament\Resources\Employees\RelationManagers\DocumentsRelationManager;
 use App\Filament\Resources\Employees\Schemas\EmployeeForm;
 use App\Filament\Resources\Employees\Tables\EmployeesTable;
 use App\Models\Employee;
@@ -105,6 +106,14 @@ class EmployeeResource extends Resource
     public static function getGlobalSearchEloquentQuery(): Builder
     {
         return static::getEloquentQuery()->with(['department', 'designation']);
+    }
+
+    /** @return array<class-string> */
+    public static function getRelations(): array
+    {
+        return [
+            DocumentsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array

@@ -25,6 +25,7 @@ class DatabaseSeeder extends Seeder
             TaxSlabSeeder::class,
             LeaveTypeSeeder::class,
             SalaryComponentTypeSeeder::class,
+            DocumentTypeSeeder::class,
         ]);
 
         Company::create(['name' => 'PLACEHOLDER Company Name']);
