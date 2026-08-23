@@ -67,6 +67,16 @@ class RolePermissionSeeder extends Seeder
      * - Nobody gets `Update:EmployeeDocument`. There is no edit action on a
      *   document anywhere (wrong file → delete and re-upload, not edit in
      *   place), so granting it would be inert.
+     * - Nobody gets `Update:JournalEntry` or `Delete:JournalEntry`. A posted
+     *   entry is immutable — no edit or delete action exists anywhere
+     *   (JournalEntryResource's own docblock); a mistake is corrected by
+     *   posting a reversal, which is gated by `Create:JournalEntry` (it's
+     *   just another post) rather than a dedicated verb.
+     * - Nobody gets `Update:Invoice`. Same shape as JournalEntry — an issued
+     *   invoice is immutable, corrected by cancelling
+     *   (`InvoiceService::cancel()`, gated by `Delete:Invoice` — same
+     *   Delete→cancel mapping PayrollRun's Discard already uses) and, if
+     *   needed, issuing a fresh one.
      *
      * @return array<string, array<string, list<string>>>
      */
@@ -137,6 +147,21 @@ class RolePermissionSeeder extends Seeder
                 // identity documents for statutory filings, not managing
                 // uploads (that stays hr_admin's job).
                 'EmployeeDocument' => self::READ,
+                // Accounting (Phase 4a) — same owner as payroll/tax config
+                // above. Account has a real Delete in its table (MANAGE
+                // fits, like SalaryComponentType); JournalEntry only ever
+                // gets Create — see the omission note above for why Update/
+                // Delete are never granted.
+                'Account' => self::MANAGE,
+                'JournalEntry' => ['ViewAny', 'View', 'Create'],
+                // Sales Invoicing (Phase 4b), same owner. Customer/VatRate
+                // are real lookup-ish tables with a Delete action — MANAGE.
+                // Invoice: Create issues one, Delete gates Cancel (see the
+                // omission note above); no Update, same reasoning as
+                // JournalEntry.
+                'Customer' => self::MANAGE,
+                'VatRate' => self::MANAGE,
+                'Invoice' => ['ViewAny', 'View', 'Create', 'Delete'],
             ],
 
             // Read-only on people. Which people is decided by

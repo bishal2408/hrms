@@ -4,6 +4,7 @@ use App\Exceptions\MissingPayrollRateException;
 use App\Exceptions\MissingSalaryStructureException;
 use App\Exceptions\MissingTaxSlabException;
 use App\Models\AttendanceLog;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
@@ -264,4 +265,85 @@ test('the last day of the period is not silently dropped from attendance or leav
     // Only the last day is covered for each — 29 of 30 days unpaid, not 30.
     expect($result1->unpaidDays)->toBe(29)
         ->and($result2->unpaidDays)->toBe(29);
+});
+
+// Company::PAYROLL_MODE_FULL_SALARY — decision: 2026-08-23. All tests above
+// this point run with no Company row saved, so Company::current() is an
+// unsaved firstOrNew() instance whose payroll_salary_calculation_mode is
+// null — the calculate() branch treats that the same as the default
+// attendance-prorated mode (a whitelisted `=== FULL_SALARY` check, not a
+// blacklisted `!== ATTENDANCE_PRORATED` one), which is why none of them
+// needed a Company row to keep passing unchanged.
+
+test('full-salary mode pays the complete basic salary even with zero attendance', function () {
+    Company::create(['name' => 'Test Co', 'payroll_salary_calculation_mode' => Company::PAYROLL_MODE_FULL_SALARY]);
+
+    $employee = Employee::factory()->create(['hired_at' => '2020-01-01']);
+    SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2026-01-01']);
+    // Deliberately no AttendanceLog and no LeaveRequest at all.
+
+    $result = $this->service->calculate($employee, $this->periodStart, $this->periodEnd);
+
+    expect($result->unpaidDays)->toBe(0)
+        ->and($result->basicAfterAttendance)->toBe(30000.0);
+});
+
+test('full-salary mode still deducts an approved, unpaid leave day — only that day, not the whole month', function () {
+    Company::create(['name' => 'Test Co', 'payroll_salary_calculation_mode' => Company::PAYROLL_MODE_FULL_SALARY]);
+
+    $employee = Employee::factory()->create(['hired_at' => '2020-01-01']);
+    SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2026-01-01']);
+
+    $paidType = LeaveType::factory()->create(['is_paid' => true]);
+    $unpaidType = LeaveType::factory()->create(['is_paid' => false]);
+
+    // Days 1-5: approved paid leave (already paid by default, this proves it
+    // doesn't get double-subtracted). Days 6-10: approved unpaid leave — the
+    // only days that should actually reduce pay. Days 11-30: no record at
+    // all — paid, unlike the default mode.
+    LeaveRequest::factory()->approved()->create([
+        'employee_id' => $employee->id, 'leave_type_id' => $paidType->id,
+        'start_date' => $this->periodStart->toDateString(), 'end_date' => $this->periodStart->copy()->addDays(4)->toDateString(),
+    ]);
+    LeaveRequest::factory()->approved()->create([
+        'employee_id' => $employee->id, 'leave_type_id' => $unpaidType->id,
+        'start_date' => $this->periodStart->copy()->addDays(5)->toDateString(), 'end_date' => $this->periodStart->copy()->addDays(9)->toDateString(),
+    ]);
+
+    $result = $this->service->calculate($employee, $this->periodStart, $this->periodEnd);
+
+    // 30000 * (30-5)/30 = 25000.0.
+    expect($result->unpaidDays)->toBe(5)
+        ->and($result->basicAfterAttendance)->toBe(25000.0);
+});
+
+test('full-salary mode still prorates for a mid-period hire', function () {
+    Company::create(['name' => 'Test Co', 'payroll_salary_calculation_mode' => Company::PAYROLL_MODE_FULL_SALARY]);
+
+    // Hired on day 21 of the 30-day period — 10 days actually employed.
+    $employee = Employee::factory()->create(['hired_at' => $this->periodStart->copy()->addDays(20)->toDateString()]);
+    SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2020-01-01']);
+
+    $result = $this->service->calculate($employee, $this->periodStart, $this->periodEnd);
+
+    // 30000 * 10/30 = 10000.0 — full salary mode still isn't paying for days
+    // before the employee existed.
+    expect($result->unpaidDays)->toBe(20)
+        ->and($result->basicAfterAttendance)->toBe(10000.0);
+});
+
+test('full-salary mode still prorates for a mid-period termination', function () {
+    Company::create(['name' => 'Test Co', 'payroll_salary_calculation_mode' => Company::PAYROLL_MODE_FULL_SALARY]);
+
+    // Terminated on day 10 of the 30-day period — 10 days actually employed.
+    $employee = Employee::factory()->create([
+        'hired_at' => '2020-01-01',
+        'terminated_at' => $this->periodStart->copy()->addDays(9)->toDateString(),
+    ]);
+    SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2020-01-01']);
+
+    $result = $this->service->calculate($employee, $this->periodStart, $this->periodEnd);
+
+    expect($result->unpaidDays)->toBe(20)
+        ->and($result->basicAfterAttendance)->toBe(10000.0);
 });

@@ -7,6 +7,7 @@ use App\Exceptions\MissingPayrollRateException;
 use App\Exceptions\MissingSalaryStructureException;
 use App\Exceptions\MissingTaxSlabException;
 use App\Models\AttendanceLog;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
 use App\Models\PayrollRate;
@@ -25,14 +26,26 @@ use Illuminate\Support\Collection;
  * The formula (decisions made 2026-08-17, all worth re-reading before
  * touching this class):
  *
- * - **Attendance/leave affect basic salary only.** A day in the period counts
- *   as paid if the employee has an AttendanceLog row for it, OR it falls
- *   inside an approved LeaveRequest whose LeaveType is paid. Every other day
- *   is unpaid and basic salary is pro-rated: basicAfterAttendance =
- *   basicSalary × (totalDays − unpaidDays) / totalDays. There is no company
- *   holiday/weekly-off calendar yet, so every calendar day in the period
- *   currently counts toward totalDays — a documented limitation, not an
- *   oversight (see docs/ROADMAP.md 3a).
+ * - **Attendance/leave affect basic salary only — in the default mode.**
+ *   `companies.payroll_salary_calculation_mode` (decision: 2026-08-23)
+ *   chooses between two day-counting strategies, both feeding the same
+ *   formula: basicAfterAttendance = basicSalary × (totalDays − unpaidDays) /
+ *   totalDays.
+ *   - `Company::PAYROLL_MODE_ATTENDANCE_PRORATED` (default, `paidDayCount()`):
+ *     a day counts as paid only if the employee has an AttendanceLog row for
+ *     it, OR it falls inside an approved LeaveRequest whose LeaveType is
+ *     paid. Every other day — including one with no record at all — is
+ *     unpaid.
+ *   - `Company::PAYROLL_MODE_FULL_SALARY` (`fullSalaryPaidDayCount()`): the
+ *     opposite default — every day within the employee's actual employment
+ *     window (hired_at/terminated_at clipped to the period) counts as paid
+ *     *unless* an approved LeaveRequest whose LeaveType is unpaid explicitly
+ *     covers it. A day with no record at all is paid. This still prorates
+ *     for a mid-period hire/termination — it only skips attendance-based
+ *     proration, not employment-window proration.
+ *   There is no company holiday/weekly-off calendar yet, so every calendar
+ *   day in the period currently counts toward totalDays in both modes — a
+ *   documented limitation, not an oversight (see docs/ROADMAP.md 3a).
  * - **Allowance/deduction line items are flat.** They come from the
  *   employee's current SalaryStructure and are not affected by attendance —
  *   a transport allowance or a loan instalment doesn't change because of a
@@ -65,7 +78,10 @@ class PayrollCalculationService
         }
 
         $totalDays = (int) $periodStart->diffInDays($periodEnd) + 1;
-        $unpaidDays = $totalDays - $this->paidDayCount($employee, $periodStart, $periodEnd);
+        $paidDays = Company::current()->payroll_salary_calculation_mode === Company::PAYROLL_MODE_FULL_SALARY
+            ? $this->fullSalaryPaidDayCount($employee, $periodStart, $periodEnd)
+            : $this->paidDayCount($employee, $periodStart, $periodEnd);
+        $unpaidDays = $totalDays - $paidDays;
 
         $basicAfterAttendance = $totalDays > 0
             ? round($structure->basic_salary * ($totalDays - $unpaidDays) / $totalDays, 2)
@@ -150,6 +166,55 @@ class PayrollCalculationService
         }
 
         return $paidDates->merge($leaveDates)->unique()->count();
+    }
+
+    /**
+     * Count of days in the period, within the employee's actual employment
+     * window (hired_at/terminated_at clipped to [$periodStart, $periodEnd]),
+     * that are NOT covered by an approved, unpaid leave request. Used by
+     * Company::PAYROLL_MODE_FULL_SALARY — the inverse default of
+     * paidDayCount(): a day with no record at all is paid, an explicit
+     * unpaid-leave day is not. Employment-window clipping still applies —
+     * this mode skips attendance-based proration, not proration for a
+     * mid-period hire/termination.
+     */
+    private function fullSalaryPaidDayCount(Employee $employee, Carbon $periodStart, Carbon $periodEnd): int
+    {
+        $employmentStart = ($employee->hired_at !== null && $employee->hired_at->gt($periodStart))
+            ? $employee->hired_at
+            : $periodStart;
+        $employmentEnd = ($employee->terminated_at !== null && $employee->terminated_at->lt($periodEnd))
+            ? $employee->terminated_at
+            : $periodEnd;
+
+        if ($employmentStart->gt($employmentEnd)) {
+            return 0;
+        }
+
+        $employedDays = (int) $employmentStart->diffInDays($employmentEnd) + 1;
+
+        // whereDate(), not whereBetween()/plain <=: same SQLite date-cast
+        // reasoning as paidDayCount() above.
+        $unpaidLeaves = LeaveRequest::query()
+            ->where('employee_id', $employee->id)
+            ->where('status', LeaveRequest::STATUS_APPROVED)
+            ->whereHas('leaveType', fn (Builder $query) => $query->where('is_paid', false))
+            ->whereDate('start_date', '<=', $employmentEnd->toDateString())
+            ->whereDate('end_date', '>=', $employmentStart->toDateString())
+            ->get(['start_date', 'end_date']);
+
+        $unpaidLeaveDates = collect();
+
+        foreach ($unpaidLeaves as $leave) {
+            $rangeStart = $leave->start_date->gt($employmentStart) ? $leave->start_date : $employmentStart;
+            $rangeEnd = $leave->end_date->lt($employmentEnd) ? $leave->end_date : $employmentEnd;
+
+            for ($date = $rangeStart->copy(); $date->lte($rangeEnd); $date->addDay()) {
+                $unpaidLeaveDates->push($date->toDateString());
+            }
+        }
+
+        return $employedDays - $unpaidLeaveDates->unique()->count();
     }
 
     /**

@@ -18,6 +18,12 @@
         </include>
     </source>
     <php>
+        <!-- PhpSpreadsheet/zipstream-php (Phase 4c's VAT Excel export) hold a
+             sizeable object graph even for a handful of rows — the default
+             128M CLI memory_limit gets exhausted once memory accumulated
+             across the rest of a single-process full suite run reaches
+             those tests, even though they pass cleanly in isolation. -->
+        <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

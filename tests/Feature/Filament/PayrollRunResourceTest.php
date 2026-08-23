@@ -3,6 +3,8 @@
 use App\Filament\Resources\PayrollRuns\Pages\ListPayrollRuns;
 use App\Filament\Resources\PayrollRuns\Pages\ViewPayrollRun;
 use App\Filament\Resources\PayrollRuns\RelationManagers\PayslipsRelationManager;
+use App\Models\Account;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\PayrollRate;
 use App\Models\PayrollRun;
@@ -48,6 +50,13 @@ beforeEach(function () {
         TaxSlab::create(['marital_status' => $status, 'lower_bound' => 0, 'upper_bound' => 500000, 'rate_percent' => 1, 'effective_from' => '2020-01-01']);
         TaxSlab::create(['marital_status' => $status, 'lower_bound' => 500000, 'upper_bound' => null, 'rate_percent' => 2, 'effective_from' => '2020-01-01']);
     }
+
+    Company::create([
+        'name' => 'Test Co',
+        'salary_expense_account_id' => Account::factory()->expense()->create(['code' => '5100', 'name' => 'Salary Expense'])->id,
+        'salary_payable_account_id' => Account::factory()->liability()->create(['code' => '2200', 'name' => 'Salary Payable'])->id,
+        'statutory_payable_account_id' => Account::factory()->liability()->create(['code' => '2300', 'name' => 'Statutory Payable'])->id,
+    ]);
 });
 
 test('running payroll from the list page creates a run and calculates payslips', function () {
@@ -95,6 +104,7 @@ test('recalculate, finalize and discard are visible on a draft run', function ()
 test('finalizing from the view page locks the run and hides the draft-only actions', function () {
     $employee = Employee::factory()->create(['hired_at' => '2020-01-01']);
     SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2020-01-01']);
+    fullMonthAttendance($employee);
     $run = app(PayrollRunService::class)->run(Carbon::parse('2026-07-01'), Carbon::parse('2026-07-30'), $this->payroll);
 
     Livewire::test(ViewPayrollRun::class, ['record' => $run->getRouteKey()])
@@ -111,6 +121,7 @@ test('finalizing from the view page locks the run and hides the draft-only actio
 test('add adjustment only appears once the run is finalized', function () {
     $employee = Employee::factory()->create(['hired_at' => '2020-01-01']);
     SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2020-01-01']);
+    fullMonthAttendance($employee);
     $run = app(PayrollRunService::class)->run(Carbon::parse('2026-07-01'), Carbon::parse('2026-07-30'), $this->payroll);
     $payslip = $run->payslips()->sole();
 

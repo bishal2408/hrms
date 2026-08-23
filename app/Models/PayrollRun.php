@@ -37,6 +37,8 @@ class PayrollRun extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    public const REFERENCE_TYPE = 'payroll_run';
+
     /** @return array<string, string> */
     public static function statusOptions(): array
     {
@@ -85,6 +87,15 @@ class PayrollRun extends Model
     public function finalizedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'finalized_by');
+    }
+
+    /** The ledger posting for this run, via the polymorphic reference — not a stored FK. */
+    public function journalEntry(): ?JournalEntry
+    {
+        return JournalEntry::query()
+            ->where('reference_type', self::REFERENCE_TYPE)
+            ->where('reference_id', $this->id)
+            ->first();
     }
 
     public function isDraft(): bool

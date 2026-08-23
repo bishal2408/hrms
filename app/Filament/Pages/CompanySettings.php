@@ -2,8 +2,10 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\Account;
 use App\Models\Company;
 use BackedEnum;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -46,7 +48,15 @@ class CompanySettings extends Page implements HasSchemas
 
     public function mount(): void
     {
-        $this->form->fill(Company::current()->toArray());
+        $data = Company::current()->toArray();
+        // Before the company's first-ever save, Company::current() is an
+        // unsaved firstOrNew() instance with no key at all for this column
+        // (not even null) — the Select's own default() isn't reliably
+        // applied through a fill() that already supplies other keys, so it's
+        // set explicitly here rather than left to depend on that.
+        $data['payroll_salary_calculation_mode'] ??= Company::PAYROLL_MODE_ATTENDANCE_PRORATED;
+
+        $this->form->fill($data);
     }
 
     public function form(Schema $schema): Schema
@@ -84,6 +94,70 @@ class CompanySettings extends Page implements HasSchemas
                             ->email()
                             ->maxLength(255),
                     ]),
+                Section::make('Accounting defaults')
+                    ->description('Where InvoiceService posts each side of a sales invoice. Required before any invoice can be issued.')
+                    ->columns(3)
+                    ->schema([
+                        // Plain ->options(), not ->relationship(): this page
+                        // fills/saves the form manually (Company::current()
+                        // ->fill($this->form->getState())->save() below),
+                        // it isn't bound to a Filament record the way an
+                        // EditRecord page is, and relationship() depends on
+                        // exactly that binding to load/save correctly.
+                        Select::make('accounts_receivable_account_id')
+                            ->label('Accounts Receivable')
+                            ->options(fn () => static::accountOptions())
+                            ->searchable()
+                            ->native(false),
+                        Select::make('sales_revenue_account_id')
+                            ->label('Sales Revenue')
+                            ->options(fn () => static::accountOptions())
+                            ->searchable()
+                            ->native(false),
+                        Select::make('vat_payable_account_id')
+                            ->label('VAT Payable')
+                            ->options(fn () => static::accountOptions())
+                            ->searchable()
+                            ->native(false)
+                            ->helperText('Only needed once a VAT rate is configured and an invoice has a VAT-applicable line.'),
+                    ]),
+                Section::make('Payroll calculation')
+                    ->description('How PayrollCalculationService derives basic salary for every run.')
+                    ->schema([
+                        Select::make('payroll_salary_calculation_mode')
+                            ->label('Basic salary mode')
+                            ->options(Company::payrollSalaryCalculationModeOptions())
+                            // Not required, matching the accounting Selects
+                            // above: null already has a well-defined, safe
+                            // meaning here (PayrollCalculationService treats
+                            // it the same as the default mode), unlike an
+                            // unset accounting account which fails loudly at
+                            // point of use. The pre-first-save default is set
+                            // explicitly in mount(), not relied on here.
+                            ->native(false)
+                            ->helperText('Pro-rated: basic salary scales with attendance/paid-leave days, unattended days are unpaid. Full: the complete basic salary is paid regardless of attendance — only an explicit unpaid-leave day reduces it. Both still prorate for a mid-period hire or termination.'),
+                    ]),
+                Section::make('Payroll accounting defaults')
+                    ->description('Where PayrollRunService posts each side of a finalized payroll run. Required before any run can be finalized.')
+                    ->columns(3)
+                    ->schema([
+                        Select::make('salary_expense_account_id')
+                            ->label('Salary Expense')
+                            ->options(fn () => static::accountOptions())
+                            ->searchable()
+                            ->native(false),
+                        Select::make('salary_payable_account_id')
+                            ->label('Salary Payable')
+                            ->options(fn () => static::accountOptions())
+                            ->searchable()
+                            ->native(false),
+                        Select::make('statutory_payable_account_id')
+                            ->label('Statutory Payable')
+                            ->options(fn () => static::accountOptions())
+                            ->searchable()
+                            ->native(false)
+                            ->helperText('PF, SSF and TDS withheld/contributed. Only needed once a run has statutory amounts to post.'),
+                    ]),
             ])
             ->statePath('data');
     }
@@ -96,5 +170,16 @@ class CompanySettings extends Page implements HasSchemas
             ->title('Company settings saved')
             ->success()
             ->send();
+    }
+
+    /** @return array<int, string> */
+    private static function accountOptions(): array
+    {
+        return Account::query()
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get()
+            ->mapWithKeys(fn (Account $account): array => [$account->id => "{$account->code} — {$account->name}"])
+            ->all();
     }
 }

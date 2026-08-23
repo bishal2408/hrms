@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\EmployeeDocumentDownloadController;
+use App\Http\Controllers\InvoicePdfController;
 use App\Http\Controllers\PayslipPdfController;
+use App\Http\Controllers\VatRegisterExportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -25,3 +27,13 @@ Route::get('/payroll/payslips/{payslip}/pdf', [PayslipPdfController::class, 'dow
 // controller checks auth()->user() itself.
 Route::get('/people/employee-documents/{employeeDocument}/download', [EmployeeDocumentDownloadController::class, 'download'])
     ->name('employee-documents.download');
+
+// Same reasoning as the payslip route above — no 'auth' middleware, the
+// controller checks auth()->user() itself.
+Route::get('/accounting/invoices/{invoice}/pdf', [InvoicePdfController::class, 'download'])
+    ->name('invoices.pdf');
+
+// Same reasoning as the payslip route above — no 'auth' middleware, the
+// controller checks auth()->user() itself.
+Route::get('/accounting/vat-register/export', [VatRegisterExportController::class, 'download'])
+    ->name('vat-register.export');

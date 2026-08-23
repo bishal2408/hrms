@@ -1,6 +1,9 @@
 <?php
 
+use App\Exceptions\MissingAccountingConfigurationException;
 use App\Exceptions\PayrollRunStateException;
+use App\Models\Account;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\PayrollRate;
 use App\Models\PayrollRun;
@@ -10,6 +13,7 @@ use App\Models\SalaryStructure;
 use App\Models\SalaryStructureItem;
 use App\Models\TaxSlab;
 use App\Models\User;
+use App\Services\JournalEntryService;
 use App\Services\PayrollCalculationService;
 use App\Services\PayrollRunService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,7 +22,7 @@ use Illuminate\Support\Carbon;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    $this->service = new PayrollRunService(new PayrollCalculationService);
+    $this->service = new PayrollRunService(new PayrollCalculationService, new JournalEntryService);
     $this->creator = User::factory()->create();
 
     $this->periodStart = Carbon::parse('2026-07-01');
@@ -30,10 +34,25 @@ beforeEach(function () {
         TaxSlab::create(['marital_status' => $status, 'lower_bound' => 0, 'upper_bound' => 500000, 'rate_percent' => 1, 'effective_from' => '2020-01-01']);
         TaxSlab::create(['marital_status' => $status, 'lower_bound' => 500000, 'upper_bound' => null, 'rate_percent' => 2, 'effective_from' => '2020-01-01']);
     }
+
+    $this->salaryExpense = Account::factory()->expense()->create(['code' => '5100', 'name' => 'Salary Expense']);
+    $this->salaryPayable = Account::factory()->liability()->create(['code' => '2200', 'name' => 'Salary Payable']);
+    $this->statutoryPayable = Account::factory()->liability()->create(['code' => '2300', 'name' => 'Statutory Payable']);
+
+    Company::create([
+        'name' => 'Test Co',
+        'salary_expense_account_id' => $this->salaryExpense->id,
+        'salary_payable_account_id' => $this->salaryPayable->id,
+        'statutory_payable_account_id' => $this->statutoryPayable->id,
+    ]);
 });
 
 /**
- * An employee with a salary structure, eligible for payroll.
+ * An employee with a salary structure, eligible for payroll, with a full
+ * AttendanceLog for the file's fixed period (2026-07-01 to 2026-07-30) —
+ * PayrollCalculationService pays only days with an AttendanceLog row or a
+ * paid approved leave (see its class docblock), so without this every
+ * payslip nets to $0 and finalize()'s ledger posting has nothing to post.
  *
  * hired_at defaults safely before every period this file uses — the
  * factory's own random default (anywhere in the last 5 years) is not
@@ -46,6 +65,7 @@ function payableEmployee(array $employeeAttrs = [], float $basicSalary = 30000):
 {
     $employee = Employee::factory()->create(['hired_at' => '2020-01-01', ...$employeeAttrs]);
     SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => $basicSalary, 'effective_from' => '2020-01-01']);
+    fullMonthAttendance($employee);
 
     return $employee;
 }
@@ -223,4 +243,68 @@ test('an adjustment changes the adjusted net pay without touching the frozen pay
     expect((float) $payslip->net_pay)->toBe($originalNetPay) // frozen, untouched
         ->and($payslip->adjusted_net_pay)->toBe(round($originalNetPay + 500 - 100, 2))
         ->and($payslip->adjustments)->toHaveCount(2);
+});
+
+test('finalizing posts a balanced journal entry: debit salary expense, credit salary payable and statutory payable', function () {
+    payableEmployee(basicSalary: 30000);
+    $run = $this->service->run($this->periodStart, $this->periodEnd, $this->creator);
+    $payslip = $run->payslips()->sole();
+
+    $run = $this->service->finalize($run, $this->creator);
+
+    $entry = $run->journalEntry();
+    expect($entry)->not->toBeNull()
+        ->and($entry->lines)->toHaveCount(3)
+        ->and((float) $entry->lines->sum('debit'))->toBe((float) $entry->lines->sum('credit'));
+
+    $statutoryTotal = round(
+        (float) $payslip->pf_employee + (float) $payslip->ssf_employee + (float) $payslip->tds
+        + (float) $payslip->pf_employer + (float) $payslip->ssf_employer,
+        2
+    );
+    $expenseTotal = round((float) $payslip->net_pay + $statutoryTotal, 2);
+
+    $expenseLine = $entry->lines->firstWhere('account_id', $this->salaryExpense->id);
+    $payableLine = $entry->lines->firstWhere('account_id', $this->salaryPayable->id);
+    $statutoryLine = $entry->lines->firstWhere('account_id', $this->statutoryPayable->id);
+
+    expect((float) $expenseLine->debit)->toBe($expenseTotal)
+        ->and((float) $payableLine->credit)->toBe((float) $payslip->net_pay)
+        ->and((float) $statutoryLine->credit)->toBe($statutoryTotal);
+});
+
+test('finalizing a multi-employee run posts one entry aggregating every payslip', function () {
+    payableEmployee(basicSalary: 30000);
+    payableEmployee(basicSalary: 45000);
+    $run = $this->service->run($this->periodStart, $this->periodEnd, $this->creator);
+    $expectedNetPay = round((float) $run->payslips->sum('net_pay'), 2);
+
+    $run = $this->service->finalize($run, $this->creator);
+
+    $entry = $run->journalEntry();
+    $payableLine = $entry->lines->firstWhere('account_id', $this->salaryPayable->id);
+
+    expect((float) $payableLine->credit)->toBe($expectedNetPay);
+});
+
+test('finalizing without payroll accounting configured is rejected', function () {
+    Company::current()->update(['salary_expense_account_id' => null]);
+    payableEmployee();
+    $run = $this->service->run($this->periodStart, $this->periodEnd, $this->creator);
+
+    $this->service->finalize($run, $this->creator);
+})->throws(MissingAccountingConfigurationException::class);
+
+test('a rejected finalize (missing accounting configuration) leaves the run a draft', function () {
+    Company::current()->update(['salary_expense_account_id' => null]);
+    payableEmployee();
+    $run = $this->service->run($this->periodStart, $this->periodEnd, $this->creator);
+
+    try {
+        $this->service->finalize($run, $this->creator);
+    } catch (MissingAccountingConfigurationException) {
+        // expected
+    }
+
+    expect($run->fresh()->isDraft())->toBeTrue();
 });

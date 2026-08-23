@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Exceptions\MissingAccountingConfigurationException;
 use App\Exceptions\MissingPayrollRateException;
 use App\Exceptions\MissingSalaryStructureException;
 use App\Exceptions\MissingTaxSlabException;
 use App\Exceptions\PayrollRunStateException;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\PayrollRun;
 use App\Models\Payslip;
@@ -28,6 +30,7 @@ class PayrollRunService
 {
     public function __construct(
         private readonly PayrollCalculationService $calculator,
+        private readonly JournalEntryService $journalEntryService,
     ) {}
 
     /**
@@ -81,9 +84,13 @@ class PayrollRunService
     /**
      * Lock a draft run. Every Payslip in it becomes immutable from this point
      * on — corrections happen through addAdjustment(), never by editing a row
-     * here.
+     * here. Also posts the run's aggregate payroll expense to the general
+     * ledger (see postToLedger()) — finalizing is the moment payroll becomes
+     * a real financial event, the same reasoning InvoiceService posts at
+     * issue time rather than draft time.
      *
      * @throws PayrollRunStateException
+     * @throws MissingAccountingConfigurationException
      */
     public function finalize(PayrollRun $run, User $user): PayrollRun
     {
@@ -93,13 +100,17 @@ class PayrollRunService
             throw new PayrollRunStateException('This run has no payslips to finalize — every employee was skipped.');
         }
 
-        $run->forceFill([
-            'status' => PayrollRun::STATUS_FINALIZED,
-            'finalized_by' => $user->id,
-            'finalized_at' => Carbon::now(),
-        ])->save();
+        return DB::transaction(function () use ($run, $user): PayrollRun {
+            $run->forceFill([
+                'status' => PayrollRun::STATUS_FINALIZED,
+                'finalized_by' => $user->id,
+                'finalized_at' => Carbon::now(),
+            ])->save();
 
-        return $run->refresh();
+            $this->postToLedger($run, $user);
+
+            return $run->refresh();
+        });
     }
 
     /**
@@ -189,6 +200,68 @@ class PayrollRunService
             'skipped_employees' => $skipped,
             'calculated_at' => Carbon::now(),
         ])->save();
+    }
+
+    /**
+     * Post the run's aggregate payroll cost as one balanced journal entry:
+     *
+     *   Debit  Salary Expense     = net pay + PF/SSF/TDS withheld + employer PF/SSF
+     *   Credit Salary Payable     = net pay owed to employees
+     *   Credit Statutory Payable  = PF/SSF/TDS withheld + employer PF/SSF contributions
+     *
+     * One entry per run, not one per payslip — a payroll run is a single
+     * financial event on the books, same granularity as one journal entry
+     * per invoice. Employer PF/SSF contributions are recognised as their own
+     * cost (on top of net pay) because they are money the company owes the
+     * PF/SSF fund that was never part of any employee's pay; deductions
+     * (loan repayments etc.) are already netted out of net_pay by
+     * PayrollCalculationService, so they need no line of their own here —
+     * they simply reduce what the company owes, not what it owes to a third
+     * party.
+     *
+     * @throws MissingAccountingConfigurationException
+     */
+    private function postToLedger(PayrollRun $run, User $postedBy): void
+    {
+        $company = Company::current();
+
+        $payslips = $run->payslips;
+        $netPayTotal = round((float) $payslips->sum('net_pay'), 2);
+        $statutoryTotal = round(
+            (float) $payslips->sum('pf_employee') + (float) $payslips->sum('ssf_employee') + (float) $payslips->sum('tds')
+            + (float) $payslips->sum('pf_employer') + (float) $payslips->sum('ssf_employer'),
+            2
+        );
+        $expenseTotal = round($netPayTotal + $statutoryTotal, 2);
+        $needsStatutoryAccount = $statutoryTotal > 0;
+
+        if ($company->salary_expense_account_id === null
+            || $company->salary_payable_account_id === null
+            || ($needsStatutoryAccount && $company->statutory_payable_account_id === null)) {
+            throw new MissingAccountingConfigurationException(
+                'Configure the Salary Expense, Salary Payable and Statutory Payable accounts in Company Settings before finalizing payroll.'
+            );
+        }
+
+        $period = "{$run->period_start->toDateString()} to {$run->period_end->toDateString()}";
+
+        $lines = [
+            ['account_id' => $company->salary_expense_account_id, 'debit' => $expenseTotal, 'credit' => 0, 'description' => "Payroll {$period}"],
+            ['account_id' => $company->salary_payable_account_id, 'debit' => 0, 'credit' => $netPayTotal, 'description' => 'Net pay owed to employees'],
+        ];
+
+        if ($needsStatutoryAccount) {
+            $lines[] = ['account_id' => $company->statutory_payable_account_id, 'debit' => 0, 'credit' => $statutoryTotal, 'description' => 'PF, SSF and TDS payable'];
+        }
+
+        $this->journalEntryService->post(
+            entryDate: $run->period_end,
+            description: "Payroll for {$period}",
+            lines: $lines,
+            postedBy: $postedBy,
+            referenceType: PayrollRun::REFERENCE_TYPE,
+            referenceId: $run->id,
+        );
     }
 
     private function assertDraft(PayrollRun $run): void

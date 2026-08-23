@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Account;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\PayrollRate;
 use App\Models\SalaryStructure;
@@ -25,6 +27,13 @@ beforeEach(function () {
         TaxSlab::create(['marital_status' => $status, 'lower_bound' => 0, 'upper_bound' => 500000, 'rate_percent' => 1, 'effective_from' => '2020-01-01']);
         TaxSlab::create(['marital_status' => $status, 'lower_bound' => 500000, 'upper_bound' => null, 'rate_percent' => 2, 'effective_from' => '2020-01-01']);
     }
+
+    Company::create([
+        'name' => 'Test Co',
+        'salary_expense_account_id' => Account::factory()->expense()->create(['code' => '5100', 'name' => 'Salary Expense'])->id,
+        'salary_payable_account_id' => Account::factory()->liability()->create(['code' => '2200', 'name' => 'Salary Payable'])->id,
+        'statutory_payable_account_id' => Account::factory()->liability()->create(['code' => '2300', 'name' => 'Statutory Payable'])->id,
+    ]);
 });
 
 test('staff with View:PayrollRun can download any payslip', function () {
@@ -46,6 +55,7 @@ test('an employee can download their own payslip once the run is finalized', fun
     $user = User::factory()->create()->assignRole('employee');
     $employee = Employee::factory()->create(['user_id' => $user->id, 'hired_at' => '2020-01-01']);
     SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 30000, 'effective_from' => '2020-01-01']);
+    fullMonthAttendance($employee);
 
     $run = app(PayrollRunService::class)->run(Carbon::parse('2026-07-01'), Carbon::parse('2026-07-30'), $payroll);
     $run = app(PayrollRunService::class)->finalize($run, $payroll);
@@ -78,6 +88,7 @@ test('an employee cannot download someone else\'s payslip', function () {
 
     $other = Employee::factory()->create(['hired_at' => '2020-01-01']);
     SalaryStructure::create(['employee_id' => $other->id, 'basic_salary' => 30000, 'effective_from' => '2020-01-01']);
+    fullMonthAttendance($other);
 
     $run = app(PayrollRunService::class)->run(Carbon::parse('2026-07-01'), Carbon::parse('2026-07-30'), $payroll);
     $run = app(PayrollRunService::class)->finalize($run, $payroll);

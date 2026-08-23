@@ -2,15 +2,18 @@
 
 use App\Filament\Resources\Employees\Pages\CreateEmployee;
 use App\Filament\Resources\Employees\Pages\EditEmployee;
+use App\Filament\Resources\Employees\Pages\ListEmployees;
 use App\Models\Department;
 use App\Models\Designation;
 use App\Models\Employee;
+use App\Models\SalaryStructure;
 use App\Models\TaxSlab;
 use App\Models\User;
 use App\Services\NepaliCalendar;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
@@ -93,6 +96,51 @@ test('terminating an employee ends employment without deleting the record', func
         ->and($employee->is_active)->toBeFalse()
         ->and($employee->terminated_at->toDateString())
         ->toBe(NepaliCalendar::bsToAd('2081-04-01')->toDateString());
+});
+
+test('a user who can view salary structures sees the employee\'s current salary in the list', function () {
+    Role::findOrCreate('payroll_accountant', 'web')->givePermissionTo(
+        Permission::findOrCreate('ViewAny:Employee', 'web'),
+        Permission::findOrCreate('ViewAny:SalaryStructure', 'web'),
+    );
+    $accountant = User::factory()->create()->assignRole('payroll_accountant');
+    $this->actingAs($accountant);
+
+    $employee = Employee::factory()->create(['first_name' => 'Anita', 'last_name' => 'Shrestha']);
+    SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 45000, 'effective_from' => '2020-01-01']);
+
+    Livewire::test(ListEmployees::class)->assertSee('45,000');
+});
+
+test('a user without salary-structure access never sees salary figures in the employee list', function () {
+    // hr_admin can fully manage employees but salary is payroll's domain
+    // throughout this app (RolePermissionSeeder never grants hr_admin
+    // SalaryStructure) — the column must be hidden entirely, same
+    // reasoning as the ->assertDontSee($user->password) case in
+    // UserResourceTest.
+    Role::findOrCreate('hr_admin', 'web')->givePermissionTo(
+        Permission::findOrCreate('ViewAny:Employee', 'web'),
+    );
+    $hr = User::factory()->create()->assignRole('hr_admin');
+    $this->actingAs($hr);
+
+    $employee = Employee::factory()->create(['first_name' => 'Anita', 'last_name' => 'Shrestha']);
+    SalaryStructure::create(['employee_id' => $employee->id, 'basic_salary' => 45000, 'effective_from' => '2020-01-01']);
+
+    Livewire::test(ListEmployees::class)->assertDontSee('45,000');
+});
+
+test('an employee with no salary structure shows a placeholder, not an error', function () {
+    Role::findOrCreate('payroll_accountant', 'web')->givePermissionTo(
+        Permission::findOrCreate('ViewAny:Employee', 'web'),
+        Permission::findOrCreate('ViewAny:SalaryStructure', 'web'),
+    );
+    $accountant = User::factory()->create()->assignRole('payroll_accountant');
+    $this->actingAs($accountant);
+
+    Employee::factory()->create(); // no SalaryStructure at all
+
+    Livewire::test(ListEmployees::class)->assertSee('Not set');
 });
 
 test('an employee code cannot be reused', function () {
