@@ -4,6 +4,8 @@ namespace App\Filament\Employee\Pages;
 
 use App\Exceptions\AlreadyClockedInException;
 use App\Exceptions\NotClockedInException;
+use App\Filament\Employee\Widgets\MyLeaveBalanceWidget;
+use App\Filament\Employee\Widgets\MyOverviewWidget;
 use App\Models\AttendanceLog;
 use App\Models\Employee;
 use App\Services\AttendanceService;
@@ -11,6 +13,7 @@ use BackedEnum;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use UnitEnum;
@@ -41,6 +44,21 @@ class Attendance extends Page
     protected static string|UnitEnum|null $navigationGroup = 'Attendance & Leave';
 
     protected static ?int $navigationSort = 10;
+
+    /**
+     * The self-service half of DESIGN.md D2 (my pending requests, my latest
+     * payslip, my leave balance) — shown above this page's own clock in/out
+     * content, which already covers D2's "clock in/out state".
+     *
+     * @return array<class-string<Widget>>
+     */
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            MyOverviewWidget::class,
+            MyLeaveBalanceWidget::class,
+        ];
+    }
 
     /** The signed-in user's own employee record, or null when none is linked. */
     public function getEmployee(): ?Employee

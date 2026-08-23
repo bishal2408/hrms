@@ -64,3 +64,18 @@ function fullMonthAttendance(Employee $employee, ?Carbon $start = null, ?Carbon 
         AttendanceLog::factory()->create(['employee_id' => $employee->id, 'date' => $date->toDateString(), 'clock_in' => $date->copy()->setTime(9, 0)]);
     }
 }
+
+/**
+ * ChartWidget::getData() is protected — called directly via reflection
+ * rather than asserting on serialized JSON inside rendered HTML, which would
+ * be a fragile way to check the actual computed figures.
+ *
+ * @return array<string, mixed>
+ */
+function chartData(object $widget): array
+{
+    $method = new ReflectionMethod($widget, 'getData');
+    $method->setAccessible(true);
+
+    return $method->invoke($widget);
+}

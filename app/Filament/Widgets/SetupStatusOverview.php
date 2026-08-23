@@ -16,15 +16,29 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 /**
  * What an HR admin needs to know at the front door *today*.
  *
- * Right now that is the configuration state: employees, attendance, leave
- * requests and payroll runs do not exist until their phases land, so this
- * widget reports on the data the app actually has rather than showing
- * invented headcount figures. Each stat links to the screen that fixes it.
- *
- * Replace/extend these stats as real operational data arrives (DESIGN.md D2).
+ * Originally the only dashboard content (before employees/attendance/leave/
+ * payroll existed to report on); now superseded day-to-day by
+ * OperationalOverview (Phase 7, DESIGN.md D2). Kept, but self-hiding: once
+ * every configuration item below is complete, this widget is a permanent
+ * "all good" decoration — exactly what D2 says a dashboard should not be —
+ * so canView() only shows it while something genuinely still needs setting
+ * up (a fresh install, or a fiscal-year rollover that dropped a rate/slab).
  */
 class SetupStatusOverview extends StatsOverviewWidget
 {
+    public static function canView(): bool
+    {
+        $ratesComplete = collect(array_keys(PayrollRate::typeOptions()))
+            ->every(fn (string $type): bool => PayrollRate::currentFor($type) !== null);
+
+        $slabsComplete = collect(array_keys(TaxSlab::maritalStatusOptions()))
+            ->every(fn (string $status): bool => TaxSlab::slabsFor($status)->isNotEmpty());
+
+        $leaveTypesConfigured = LeaveType::query()->exists();
+
+        return ! ($ratesComplete && $slabsComplete && $leaveTypesConfigured);
+    }
+
     protected function getStats(): array
     {
         return [
