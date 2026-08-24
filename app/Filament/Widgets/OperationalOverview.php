@@ -209,7 +209,7 @@ class OperationalOverview extends StatsOverviewWidget
         if ($latestFinalizedRun === null) {
             return Stat::make('TDS due', 'No runs yet')
                 ->description('Nothing finalized yet')
-                ->descriptionIcon(Heroicon::OutlinedReceiptPercent)
+                ->descriptionIcon(Heroicon::OutlinedPercentBadge)
                 ->color('gray')
                 ->url(TdsReportPage::getUrl());
         }
@@ -219,7 +219,7 @@ class OperationalOverview extends StatsOverviewWidget
 
         return Stat::make('TDS due', 'NPR '.number_format($report->totalTds, 2))
             ->description('For '.$latestFinalizedRun->period_start->format('M Y'))
-            ->descriptionIcon(Heroicon::OutlinedReceiptPercent)
+            ->descriptionIcon(Heroicon::OutlinedPercentBadge)
             ->color('gray')
             ->url(TdsReportPage::getUrl());
     }
@@ -237,7 +237,7 @@ class OperationalOverview extends StatsOverviewWidget
     {
         return Stat::make('VAT collected this month', 'NPR '.number_format($vatReport->totalVat, 2))
             ->description(Carbon::now()->format('F Y').' so far')
-            ->descriptionIcon(Heroicon::OutlinedReceiptPercent)
+            ->descriptionIcon(Heroicon::OutlinedDocumentText)
             ->color('gray')
             ->url(VatRegisterPage::getUrl());
     }

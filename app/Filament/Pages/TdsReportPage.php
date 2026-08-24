@@ -33,7 +33,11 @@ class TdsReportPage extends Page implements HasSchemas
 
     protected static string|UnitEnum|null $navigationGroup = 'Payroll';
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedReceiptPercent;
+    // Not OutlinedReceiptPercent: PayrollRateResource and VatRateResource
+    // already use it — DESIGN.md's "Never ship the generator's default icon
+    // on more than one resource" rule extends to any duplicate nav icon,
+    // not just the generator's literal default.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPercentBadge;
 
     protected static ?string $navigationLabel = 'TDS Report';
 
