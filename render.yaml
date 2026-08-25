@@ -1,0 +1,78 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Connect this repo on Render as a Blueprint and it reads this file to create
+# both services below in one go. Two things you must still do by hand
+# afterwards (Render Blueprints deliberately don't store secrets in git):
+#   1. APP_KEY — run `php artisan key:generate --show` locally and paste the
+#      result into the hr-app service's Environment tab.
+#   2. APP_URL — after the first deploy Render assigns a *.onrender.com URL;
+#      paste it into the same Environment tab (Filament/Livewire's asset URLs
+#      and signed URLs need the real one, not a guess made before it exists).
+#
+# See docs/DEPLOYMENT.md for the full free-tier caveats (DB expiry, ephemeral
+# file storage) referenced below.
+
+databases:
+  - name: hr-app-db
+    databaseName: hr_app
+    user: hr_app
+    plan: free # Render auto-deletes free Postgres databases after 30 days — see docs/DEPLOYMENT.md.
+
+services:
+  - type: web
+    name: hr-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /up
+    envVars:
+      - key: APP_NAME
+        value: "HR App"
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        sync: false # set manually — see the note at the top of this file
+      - key: APP_URL
+        sync: false # set manually once Render assigns the service's URL
+      - key: APP_LOCALE
+        value: en
+      - key: LOG_CHANNEL
+        value: stderr # Render only captures stdout/stderr, not files inside the container
+      - key: LOG_LEVEL
+        value: info
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        fromDatabase:
+          name: hr-app-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: hr-app-db
+          property: port
+      - key: DB_DATABASE
+        fromDatabase:
+          name: hr-app-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: hr-app-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: hr-app-db
+          property: password
+      - key: SESSION_DRIVER
+        value: database
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: QUEUE_CONNECTION
+        value: database # no ShouldQueue jobs exist in this app today — no separate worker service needed
+      - key: CACHE_STORE
+        value: database
+      - key: FILESYSTEM_DISK
+        value: local # ephemeral on free tier — employee document uploads do not survive a restart, see docs/DEPLOYMENT.md
+      - key: MAIL_MAILER
+        value: log # replace with a real SMTP provider before this app sends anything that matters

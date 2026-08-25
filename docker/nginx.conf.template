@@ -1,0 +1,57 @@
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    keepalive_timeout 65;
+    client_max_body_size 20M;
+
+    # Employee document uploads (app/Filament/Resources/Employees/RelationManagers/
+    # DocumentsRelationManager.php) go through Livewire's temporary-upload
+    # endpoint before EmployeeDocumentService ever sees them — a body limit
+    # here that's too small breaks uploads with a raw 413 before Laravel's
+    # own validation rules get a chance to explain why.
+
+    server {
+        # ${PORT} is substituted by entrypoint.sh (envsubst) from Render's
+        # injected $PORT env var — Render does not always assign 8080, and a
+        # hardcoded port here would silently fail health checks.
+        listen ${PORT} default_server;
+        server_name _;
+        root /var/www/html/public;
+        index index.php;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        location ~ \.php$ {
+            fastcgi_pass unix:/run/php-fpm.sock;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            include fastcgi_params;
+            fastcgi_read_timeout 300;
+        }
+
+        # Never serve dotfiles (.env, .git, etc.) even if something ends up
+        # inside the webroot.
+        location ~ /\.(?!well-known) {
+            deny all;
+        }
+
+        location ~* \.(css|js|svg|png|jpg|jpeg|gif|ico|woff2?|ttf)$ {
+            expires 7d;
+            access_log off;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}
